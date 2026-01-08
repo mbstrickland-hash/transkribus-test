@@ -4,35 +4,103 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Document + Transcription (Line-level)</title>
+
   <style>
     body { margin: 0; font-family: system-ui, Arial, sans-serif; }
-    .wrap {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 16px;
-  padding: 16px;
-}
-    .panel { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
-    .imgBox { position: relative; width: 100%; }
-    .imgBox img { width: 100%; height: auto; display: block; }
-    .overlay { position: absolute; inset: 0; pointer-events: none; }
-    .line { padding: 6px 8px; border-radius: 8px; margin: 4px 0; cursor: default; }
-    .line:hover { background: #f2f2f2; }
-    .line.active { background: #ffeaa7; }
-    .hl { fill: rgba(255, 234, 167, 0.35); stroke: rgba(0,0,0,0.35); stroke-width: 2; }
-    .hl.active { fill: rgba(255, 234, 167, 0.65); stroke: rgba(0,0,0,0.6); }
-    .hint { color: #555; font-size: 14px; margin-top: 8px; }
+
+    /* Happy-medium layout: image a bit wider than text, but not extreme */
+    .wrap{
+      display: grid;
+      grid-template-columns: 3fr 2fr; /* ~60/40 */
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .panel{
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    /* Tall image area, but not full screen; scroll inside */
+    .imgBox{
+      position: relative;
+      width: 100%;
+      height: 85vh;
+      overflow: auto;
+      border-radius: 10px;
+    }
+
+    /* Image fits panel width by default (no giant fixed pixel width) */
+    .imgBox img{
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    /* SVG overlay sits above image */
+    .overlay{
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none; /* enabled per polygon */
+    }
+
+    /* Ensure zoom scales image + overlay together consistently */
+    .imgBox img, .overlay { transform-origin: top left; }
+
+    .line{
+      padding: 6px 8px;
+      border-radius: 8px;
+      margin: 4px 0;
+      cursor: default;
+      line-height: 1.25;
+    }
+    .line:hover{ background: #f2f2f2; }
+    .line.active{ background: #ffeaa7; }
+
+    .hl{
+      fill: rgba(255, 234, 167, 0.35);
+      stroke: rgba(0,0,0,0.35);
+      stroke-width: 2;
+    }
+    .hl.active{
+      fill: rgba(255, 234, 167, 0.65);
+      stroke: rgba(0,0,0,0.6);
+    }
+
+    .hint{ color: #555; font-size: 14px; margin-top: 8px; }
+
+    .zoomRow{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0 10px 0;
+      font-size: 14px;
+    }
+    .zoomRow input[type="range"]{ width: 240px; }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="panel">
-      <h2 style="margin:0 0 10px 0;">Original</h2>
+      <h2 style="margin:0 0 6px 0;">Original</h2>
+
+      <div class="zoomRow">
+        <div style="min-width:45px;">Zoom:</div>
+        <input id="zoom" type="range" min="1" max="2.0" step="0.05" value="1.15">
+        <div id="zoomVal" style="min-width:60px;">1.15×</div>
+      </div>
+
       <div class="imgBox" id="imgBox">
-        <!-- Update the filename below to match your image -->
+        <!-- Update if your filename differs -->
         <img id="pageImg" src="0003_p003.jpg" alt="Document page" />
         <svg class="overlay" id="svgOverlay"></svg>
       </div>
+
       <div class="hint">Hover a line on the right to highlight it here.</div>
     </div>
 
@@ -45,34 +113,55 @@
 
 <script>
 (async function () {
-  // Update the filename below to match your PAGE XML
   const XML_FILE = "0003_p003.xml";
 
   const img = document.getElementById("pageImg");
   const svg = document.getElementById("svgOverlay");
   const linesDiv = document.getElementById("lines");
 
+  const zoom = document.getElementById("zoom");
+  const zoomVal = document.getElementById("zoomVal");
+
+  // Apply zoom to both image + overlay so highlights stay aligned
+  function applyZoom(z){
+    img.style.transform = `scale(${z})`;
+    svg.style.transform = `scale(${z})`;
+    zoomVal.textContent = `${z}×`;
+    syncOverlayToImage(); // keep overlay sized to the (pre-zoom) image box
+  }
+
+  // Match the SVG overlay's pixel size to the image's rendered pixel size (before zoom transform)
+  function syncOverlayToImage(){
+    // getBoundingClientRect includes transforms, so divide by zoom to get base size
+    const z = parseFloat(zoom.value);
+    const rect = img.getBoundingClientRect();
+    const baseW = rect.width / z;
+    const baseH = rect.height / z;
+    svg.style.width = `${baseW}px`;
+    svg.style.height = `${baseH}px`;
+  }
+
+  // Ensure image dimensions are available
+  if (!img.complete) {
+    await new Promise(res => img.addEventListener("load", res, { once: true }));
+  }
+
   // Load PAGE XML
   const xmlText = await fetch(XML_FILE).then(r => r.text());
   const doc = new DOMParser().parseFromString(xmlText, "application/xml");
 
-  // Find page size from PAGE XML (imageWidth/imageHeight on PcGts/Page)
   const pageNode = doc.querySelector("PcGts > Page");
   const imageW = parseFloat(pageNode.getAttribute("imageWidth"));
   const imageH = parseFloat(pageNode.getAttribute("imageHeight"));
 
-  // Prepare SVG viewBox to match original image coordinates
   svg.setAttribute("viewBox", `0 0 ${imageW} ${imageH}`);
   svg.setAttribute("preserveAspectRatio", "none");
 
-  // Collect TextLine elements (line-level coordinates + text)
+  // Build line data
   const textLines = [...doc.querySelectorAll("TextLine")].map((tl, idx) => {
     const id = tl.getAttribute("id") || `line_${idx+1}`;
-
-    // Coordinates are in Coords points="x,y x,y ..."
     const coords = tl.querySelector("Coords")?.getAttribute("points") || "";
     const unicode = tl.querySelector("TextEquiv > Unicode")?.textContent?.trim() || "";
-
     return { id, coords, unicode };
   }).filter(x => x.coords && x.unicode);
 
@@ -85,25 +174,24 @@
     linesDiv.appendChild(div);
   }
 
-  // Render SVG polygons for each line
+  // Render polygons
   for (const item of textLines) {
     const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
     poly.setAttribute("points", item.coords);
     poly.setAttribute("class", "hl");
     poly.dataset.id = item.id;
-    // allow hover on overlay polygons:
-    poly.style.pointerEvents = "auto";
+    poly.style.pointerEvents = "auto"; // enable hover on image overlay
     svg.appendChild(poly);
   }
 
-  function setActive(id, on) {
+  function setActive(id, on){
     const lineEl = linesDiv.querySelector(`.line[data-id="${CSS.escape(id)}"]`);
     const polyEl = svg.querySelector(`polygon[data-id="${CSS.escape(id)}"]`);
     if (lineEl) lineEl.classList.toggle("active", on);
     if (polyEl) polyEl.classList.toggle("active", on);
   }
 
-  // Hover interactions: text -> image
+  // Hover: text -> image
   linesDiv.addEventListener("mouseover", (e) => {
     const line = e.target.closest(".line");
     if (!line) return;
@@ -115,7 +203,7 @@
     setActive(line.dataset.id, false);
   });
 
-  // Hover interactions: image -> text
+  // Hover: image -> text
   svg.addEventListener("mouseover", (e) => {
     const poly = e.target.closest("polygon[data-id]");
     if (!poly) return;
@@ -126,8 +214,18 @@
     if (!poly) return;
     setActive(poly.dataset.id, false);
   });
+
+  // Initialize sizing + zoom
+  syncOverlayToImage();
+  applyZoom(zoom.value);
+
+  zoom.addEventListener("input", () => applyZoom(zoom.value));
+  window.addEventListener("resize", () => {
+    syncOverlayToImage();
+    applyZoom(zoom.value);
+  });
+
 })();
 </script>
 </body>
 </html>
-
