@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Document + Transcription (Line-level)</title>
+  <style>
+    body { margin: 0; font-family: system-ui, Arial, sans-serif; }
+    .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+    .panel { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+    .imgBox { position: relative; width: 100%; }
+    .imgBox img { width: 100%; height: auto; display: block; }
+    .overlay { position: absolute; inset: 0; pointer-events: none; }
+    .line { padding: 6px 8px; border-radius: 8px; margin: 4px 0; cursor: default; }
+    .line:hover { background: #f2f2f2; }
+    .line.active { background: #ffeaa7; }
+    .hl { fill: rgba(255, 234, 167, 0.35); stroke: rgba(0,0,0,0.35); stroke-width: 2; }
+    .hl.active { fill: rgba(255, 234, 167, 0.65); stroke: rgba(0,0,0,0.6); }
+    .hint { color: #555; font-size: 14px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h2 style="margin:0 0 10px 0;">Original</h2>
+      <div class="imgBox" id="imgBox">
+        <!-- Update the filename below to match your image -->
+        <img id="pageImg" src="0003_p003.jpg" alt="Document page" />
+        <svg class="overlay" id="svgOverlay"></svg>
+      </div>
+      <div class="hint">Hover a line on the right to highlight it here.</div>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin:0 0 10px 0;">Transcription</h2>
+      <div id="lines"></div>
+      <div class="hint">Hover a highlighted region on the image to highlight the matching line here.</div>
+    </div>
+  </div>
+
+<script>
+(async function () {
+  // Update the filename below to match your PAGE XML
+  const XML_FILE = "0003_p003.xml";
+
+  const img = document.getElementById("pageImg");
+  const svg = document.getElementById("svgOverlay");
+  const linesDiv = document.getElementById("lines");
+
+  // Load PAGE XML
+  const xmlText = await fetch(XML_FILE).then(r => r.text());
+  const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+
+  // Find page size from PAGE XML (imageWidth/imageHeight on PcGts/Page)
+  const pageNode = doc.querySelector("PcGts > Page");
+  const imageW = parseFloat(pageNode.getAttribute("imageWidth"));
+  const imageH = parseFloat(pageNode.getAttribute("imageHeight"));
+
+  // Prepare SVG viewBox to match original image coordinates
+  svg.setAttribute("viewBox", `0 0 ${imageW} ${imageH}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+
+  // Collect TextLine elements (line-level coordinates + text)
+  const textLines = [...doc.querySelectorAll("TextLine")].map((tl, idx) => {
+    const id = tl.getAttribute("id") || `line_${idx+1}`;
+
+    // Coordinates are in Coords points="x,y x,y ..."
+    const coords = tl.querySelector("Coords")?.getAttribute("points") || "";
+    const unicode = tl.querySelector("TextEquiv > Unicode")?.textContent?.trim() || "";
+
+    return { id, coords, unicode };
+  }).filter(x => x.coords && x.unicode);
+
+  // Render transcription lines
+  for (const item of textLines) {
+    const div = document.createElement("div");
+    div.className = "line";
+    div.dataset.id = item.id;
+    div.textContent = item.unicode;
+    linesDiv.appendChild(div);
+  }
+
+  // Render SVG polygons for each line
+  for (const item of textLines) {
+    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("points", item.coords);
+    poly.setAttribute("class", "hl");
+    poly.dataset.id = item.id;
+    // allow hover on overlay polygons:
+    poly.style.pointerEvents = "auto";
+    svg.appendChild(poly);
+  }
+
+  function setActive(id, on) {
+    const lineEl = linesDiv.querySelector(`.line[data-id="${CSS.escape(id)}"]`);
+    const polyEl = svg.querySelector(`polygon[data-id="${CSS.escape(id)}"]`);
+    if (lineEl) lineEl.classList.toggle("active", on);
+    if (polyEl) polyEl.classList.toggle("active", on);
+  }
+
+  // Hover interactions: text -> image
+  linesDiv.addEventListener("mouseover", (e) => {
+    const line = e.target.closest(".line");
+    if (!line) return;
+    setActive(line.dataset.id, true);
+  });
+  linesDiv.addEventListener("mouseout", (e) => {
+    const line = e.target.closest(".line");
+    if (!line) return;
+    setActive(line.dataset.id, false);
+  });
+
+  // Hover interactions: image -> text
+  svg.addEventListener("mouseover", (e) => {
+    const poly = e.target.closest("polygon[data-id]");
+    if (!poly) return;
+    setActive(poly.dataset.id, true);
+  });
+  svg.addEventListener("mouseout", (e) => {
+    const poly = e.target.closest("polygon[data-id]");
+    if (!poly) return;
+    setActive(poly.dataset.id, false);
+  });
+})();
+</script>
+</body>
+</html>
