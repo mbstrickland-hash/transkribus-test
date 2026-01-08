@@ -4,35 +4,87 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Document + Transcription (Line-level)</title>
+
   <style>
     body { margin: 0; font-family: system-ui, Arial, sans-serif; }
+
+    /* Make the image column significantly wider than the transcription */
     .wrap {
-  display: grid;
-  grid-template-columns: 5fr 2fr;
-  gap: 16px;
-  padding: 16px;
-}
+      display: grid;
+      grid-template-columns: 5fr 2fr;
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
     .panel { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
-    .imgBox { position: relative; width: 100%; }
-    .imgBox img { width: 100%; height: auto; display: block; }
-    .overlay { position: absolute; inset: 0; pointer-events: none; }
+
+    /* Image box: tall and scrollable so the image can be large by default */
+    .imgBox{
+      position: relative;
+      width: 100%;
+      height: 90vh;
+      overflow: auto;
+      border-radius: 10px;
+    }
+
+    /* Make the page image large by default */
+    .imgBox img {
+      display: block;
+      width: 1400px;     /* increase (e.g., 1600px) if you want it even larger */
+      max-width: none;   /* prevents shrink-to-fit */
+      height: auto;
+    }
+
+    /* SVG overlay sits on top of the image */
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none; /* turned on per-polygon below */
+    }
+
+    /* Ensure zoom scales image + overlay together from the same anchor point */
+    .imgBox img, .overlay { transform-origin: top left; }
+
     .line { padding: 6px 8px; border-radius: 8px; margin: 4px 0; cursor: default; }
     .line:hover { background: #f2f2f2; }
     .line.active { background: #ffeaa7; }
+
     .hl { fill: rgba(255, 234, 167, 0.35); stroke: rgba(0,0,0,0.35); stroke-width: 2; }
     .hl.active { fill: rgba(255, 234, 167, 0.65); stroke: rgba(0,0,0,0.6); }
+
     .hint { color: #555; font-size: 14px; margin-top: 8px; }
+
+    .zoomRow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0 10px 0;
+      font-size: 14px;
+    }
+    .zoomRow input[type="range"] { width: 260px; }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="panel">
-      <h2 style="margin:0 0 10px 0;">Original</h2>
+      <h2 style="margin:0 0 6px 0;">Original</h2>
+
+      <!-- Zoom control -->
+      <div class="zoomRow">
+        <div style="min-width:45px;">Zoom:</div>
+        <input id="zoom" type="range" min="1" max="2.5" step="0.1" value="1.6">
+        <div id="zoomVal" style="min-width:52px;">1.6×</div>
+      </div>
+
       <div class="imgBox" id="imgBox">
-        <!-- Update the filename below to match your image -->
+        <!-- Update filename if yours differs -->
         <img id="pageImg" src="0003_p003.jpg" alt="Document page" />
         <svg class="overlay" id="svgOverlay"></svg>
       </div>
+
       <div class="hint">Hover a line on the right to highlight it here.</div>
     </div>
 
@@ -45,12 +97,25 @@
 
 <script>
 (async function () {
-  // Update the filename below to match your PAGE XML
+  // Update filename if yours differs
   const XML_FILE = "0003_p003.xml";
 
   const img = document.getElementById("pageImg");
   const svg = document.getElementById("svgOverlay");
   const linesDiv = document.getElementById("lines");
+
+  // Zoom controls
+  const zoom = document.getElementById("zoom");
+  const zoomVal = document.getElementById("zoomVal");
+
+  function applyZoom(z){
+    img.style.transform = `scale(${z})`;
+    svg.style.transform = `scale(${z})`;
+    zoomVal.textContent = `${z}×`;
+  }
+
+  applyZoom(zoom.value);
+  zoom.addEventListener("input", () => applyZoom(zoom.value));
 
   // Load PAGE XML
   const xmlText = await fetch(XML_FILE).then(r => r.text());
@@ -65,14 +130,36 @@
   svg.setAttribute("viewBox", `0 0 ${imageW} ${imageH}`);
   svg.setAttribute("preserveAspectRatio", "none");
 
+  // IMPORTANT: Set the SVG's displayed size to match the underlying image pixel size,
+  // so overlays align exactly. Since we set img width in CSS, we mirror it here.
+  // The height will follow automatically via viewBox scaling.
+  function syncOverlayToImage() {
+    // current rendered (unscaled) width of the image element
+    const w = img.getBoundingClientRect().width / parseFloat(zoom.value);
+    // derive height based on the image’s natural aspect ratio
+    const h = (w * img.naturalHeight) / img.naturalWidth;
+
+    svg.style.width = `${w}px`;
+    svg.style.height = `${h}px`;
+  }
+
+  // Ensure naturalWidth/naturalHeight are available
+  if (!img.complete) {
+    await new Promise(res => img.addEventListener("load", res, { once: true }));
+  }
+  syncOverlayToImage();
+
+  // Re-sync if the user changes zoom (because the displayed size changes)
+  zoom.addEventListener("input", () => syncOverlayToImage());
+
+  // Also re-sync on window resize (responsive changes)
+  window.addEventListener("resize", () => syncOverlayToImage());
+
   // Collect TextLine elements (line-level coordinates + text)
   const textLines = [...doc.querySelectorAll("TextLine")].map((tl, idx) => {
     const id = tl.getAttribute("id") || `line_${idx+1}`;
-
-    // Coordinates are in Coords points="x,y x,y ..."
     const coords = tl.querySelector("Coords")?.getAttribute("points") || "";
     const unicode = tl.querySelector("TextEquiv > Unicode")?.textContent?.trim() || "";
-
     return { id, coords, unicode };
   }).filter(x => x.coords && x.unicode);
 
@@ -91,6 +178,7 @@
     poly.setAttribute("points", item.coords);
     poly.setAttribute("class", "hl");
     poly.dataset.id = item.id;
+
     // allow hover on overlay polygons:
     poly.style.pointerEvents = "auto";
     svg.appendChild(poly);
@@ -126,9 +214,8 @@
     if (!poly) return;
     setActive(poly.dataset.id, false);
   });
+
 })();
 </script>
 </body>
 </html>
-
-
