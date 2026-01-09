@@ -1,230 +1,367 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Document + Transcription (Line-level)</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Document Viewer</title>
 
-  <style>
-    body { margin: 0; font-family: system-ui, Arial, sans-serif; }
+<style>
+body { margin: 0; font-family: system-ui, Arial, sans-serif; }
 
-    /* Happy-medium layout: image a bit wider than text, but not extreme */
-    .wrap{
-      display: grid;
-      grid-template-columns: 3fr 2fr; /* ~60/40 */
-      gap: 16px;
-      padding: 16px;
-      align-items: start;
-    }
+.wrap{
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 16px;
+  padding: 16px;
+}
 
-    .panel{
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      padding: 12px;
-      background: #fff;
-    }
+.panel{
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+  height: 60vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
-    /* Tall image area, but not full screen; scroll inside */
-    .imgBox{
-      position: relative;
-      width: 100%;
-      height: 85vh;
-      overflow: auto;
-      border-radius: 10px;
-    }
+.topControls{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
 
-    /* Image fits panel width by default (no giant fixed pixel width) */
-    .imgBox img{
-      display: block;
-      width: 100%;
-      height: auto;
-    }
+select, .btn{
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #f7f7f7;
+}
 
-    /* SVG overlay sits above image */
-    .overlay{
-      position: absolute;
-      top: 0;
-      left: 0;
-      pointer-events: none; /* enabled per polygon */
-    }
+.btn{ cursor: pointer; user-select: none; }
+.btn:disabled{ opacity: 0.5; cursor: not-allowed; }
 
-    /* Ensure zoom scales image + overlay together consistently */
-    .imgBox img, .overlay { transform-origin: top left; }
+.zoomWrap{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
-    .line{
-      padding: 6px 8px;
-      border-radius: 8px;
-      margin: 4px 0;
-      cursor: default;
-      line-height: 1.25;
-    }
-    .line:hover{ background: #f2f2f2; }
-    .line.active{ background: #ffeaa7; }
+.zoomBtn{
+  padding: 4px 10px;
+  font-size: 16px;
+  line-height: 1;
+}
 
-    .hl{
-      fill: rgba(255, 234, 167, 0.35);
-      stroke: rgba(0,0,0,0.35);
-      stroke-width: 2;
-    }
-    .hl.active{
-      fill: rgba(255, 234, 167, 0.65);
-      stroke: rgba(0,0,0,0.6);
-    }
+#zoomVal{
+  min-width: 56px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
-    .hint{ color: #555; font-size: 14px; margin-top: 8px; }
+.imgBox{
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  border-radius: 10px;
+  cursor: grab;
+}
+.imgBox.dragging{ cursor: grabbing; }
 
-    .zoomRow{
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin: 8px 0 10px 0;
-      font-size: 14px;
-    }
-    .zoomRow input[type="range"]{ width: 240px; }
-  </style>
+img{
+  display: block;
+  width: 100%;
+  transform-origin: top left;
+}
+
+.overlay{
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: top left;
+}
+
+#linePane{
+  flex: 1;
+  overflow: auto;
+}
+
+.line{
+  padding: 6px 8px;
+  margin: 4px 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.line:hover{ background: #f2f2f2; }
+.line.active{ background: #ffeaa7; }
+
+.hl{
+  fill: rgba(255,234,167,.35);
+  stroke: rgba(0,0,0,.35);
+  stroke-width: 2;
+}
+.hl.active{
+  fill: rgba(255,234,167,.65);
+  stroke: rgba(0,0,0,.6);
+}
+
+.bottomTurner{
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e6e6e6;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.helpNote{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e9e9e9;
+  border-radius: 10px;
+  background: #fafafa;
+  color: #444;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.helpNote ul{ margin: 6px 0 0 18px; }
+</style>
 </head>
 
 <body>
-  <div class="wrap">
-    <div class="panel">
-      <h2 style="margin:0 0 6px 0;">Original</h2>
+<div class="wrap">
 
-      <div class="zoomRow">
-        <div style="min-width:45px;">Zoom:</div>
-        <input id="zoom" type="range" min="1" max="2.0" step="0.05" value="1.15">
-        <div id="zoomVal" style="min-width:60px;">1.15×</div>
+  <!-- IMAGE PANEL -->
+  <div class="panel">
+    <div class="topControls">
+      <span>Page:</span>
+      <select id="pageSelect"></select>
+
+      <button class="btn" id="prevTop">◀</button>
+      <button class="btn" id="nextTop">▶</button>
+
+      <span id="indicatorTop"></span>
+
+      <span style="margin-left:auto;"></span>
+
+      <!-- ZOOM CONTROLS -->
+      <div class="zoomWrap">
+        <span>Zoom:</span>
+        <button class="btn zoomBtn" id="zoomOut">−</button>
+        <input id="zoom" type="range" min="1" max="2.5" step="0.05" value="1.25">
+        <button class="btn zoomBtn" id="zoomIn">+</button>
+        <span id="zoomVal">1.25×</span>
       </div>
-
-      <div class="imgBox" id="imgBox">
-        <!-- Update if your filename differs -->
-        <img id="pageImg" src="0003_p003.jpg" alt="Document page" />
-        <svg class="overlay" id="svgOverlay"></svg>
-      </div>
-
-      <div class="hint">Hover a line on the right to highlight it here.</div>
     </div>
 
-    <div class="panel">
-      <h2 style="margin:0 0 10px 0;">Transcription</h2>
-      <div id="lines"></div>
-      <div class="hint">Hover a highlighted region on the image to highlight the matching line here.</div>
+    <div class="imgBox" id="imgBox">
+      <img id="img" alt="Document page">
+      <svg class="overlay" id="svg"></svg>
+    </div>
+
+    <div class="bottomTurner">
+      <button class="btn" id="prevBottom">◀ Previous</button>
+      <span id="indicatorBottom"></span>
+      <button class="btn" id="nextBottom">Next ▶</button>
+    </div>
+
+    <div class="helpNote">
+      <strong>How to use this viewer</strong>
+      <ul>
+        <li>Drag the image to move it.</li>
+        <li>Zoom with mouse wheel, slider, or + / − buttons.</li>
+        <li>Click a transcription line to jump the image to that line.</li>
+        <li>Click a highlighted line on the image to jump the transcription.</li>
+        <li>Hover over a line to preview the match.</li>
+      </ul>
     </div>
   </div>
 
+  <!-- TRANSCRIPTION PANEL -->
+  <div class="panel">
+    <div id="linePane"></div>
+
+    <div class="helpNote">
+      <strong>Reading tip</strong>
+      <ul>
+        <li>Click lines to re-center the manuscript view.</li>
+        <li>Use page controls above or below to navigate.</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
 <script>
-(async function () {
-  const XML_FILE = "0003_p003.xml";
+(async()=>{
+  const PAGES=[
+    {label:"Page 1",image:"p001.jpg",xml:"p001.xml"},
+  ];
 
-  const img = document.getElementById("pageImg");
-  const svg = document.getElementById("svgOverlay");
-  const linesDiv = document.getElementById("lines");
+  const imgBox=document.getElementById("imgBox");
+  const img=document.getElementById("img");
+  const svg=document.getElementById("svg");
+  const lines=document.getElementById("linePane");
 
-  const zoom = document.getElementById("zoom");
-  const zoomVal = document.getElementById("zoomVal");
+  const zoomInput=document.getElementById("zoom");
+  const zoomVal=document.getElementById("zoomVal");
+  const zoomInBtn=document.getElementById("zoomIn");
+  const zoomOutBtn=document.getElementById("zoomOut");
 
-  // Apply zoom to both image + overlay so highlights stay aligned
+  const pageSelect=document.getElementById("pageSelect");
+  const indicatorTop=document.getElementById("indicatorTop");
+  const indicatorBottom=document.getElementById("indicatorBottom");
+
+  const prevTop=document.getElementById("prevTop");
+  const nextTop=document.getElementById("nextTop");
+  const prevBottom=document.getElementById("prevBottom");
+  const nextBottom=document.getElementById("nextBottom");
+
+  let zoom=parseFloat(zoomInput.value);
+  let page=0;
+  let imgW=1,imgH=1;
+
+  function setZoomUI(){
+    zoomInput.value=zoom.toFixed(2);
+    zoomVal.textContent=zoom.toFixed(2)+"×";
+  }
+
   function applyZoom(z){
-    img.style.transform = `scale(${z})`;
-    svg.style.transform = `scale(${z})`;
-    zoomVal.textContent = `${z}×`;
-    syncOverlayToImage(); // keep overlay sized to the (pre-zoom) image box
+    zoom=Math.min(2.5,Math.max(1,z));
+    img.style.transform=`scale(${zoom})`;
+    svg.style.transform=`scale(${zoom})`;
+    setZoomUI();
   }
 
-  // Match the SVG overlay's pixel size to the image's rendered pixel size (before zoom transform)
-  function syncOverlayToImage(){
-    // getBoundingClientRect includes transforms, so divide by zoom to get base size
-    const z = parseFloat(zoom.value);
-    const rect = img.getBoundingClientRect();
-    const baseW = rect.width / z;
-    const baseH = rect.height / z;
-    svg.style.width = `${baseW}px`;
-    svg.style.height = `${baseH}px`;
+  zoomInput.oninput=()=>applyZoom(+zoomInput.value);
+  zoomInBtn.onclick=()=>applyZoom(zoom+0.1);
+  zoomOutBtn.onclick=()=>applyZoom(zoom-0.1);
+
+  imgBox.addEventListener("wheel",(e)=>{
+    e.preventDefault();
+    applyZoom(zoom+(e.deltaY<0?0.1:-0.1));
+  },{passive:false});
+
+  let drag=false,sx,sy,sl,st;
+  imgBox.onmousedown=e=>{
+    if(e.button!==0)return;
+    drag=true; sx=e.clientX; sy=e.clientY;
+    sl=imgBox.scrollLeft; st=imgBox.scrollTop;
+    imgBox.classList.add("dragging");
+    e.preventDefault();
+  };
+  window.onmousemove=e=>{
+    if(!drag)return;
+    imgBox.scrollLeft=sl-(e.clientX-sx);
+    imgBox.scrollTop=st-(e.clientY-sy);
+  };
+  window.onmouseup=()=>{drag=false;imgBox.classList.remove("dragging");};
+
+  function bbox(pts){
+    const xs=[],ys=[];
+    pts.trim().split(/\s+/).forEach(p=>{
+      const [x,y]=p.split(",").map(Number);
+      if(Number.isFinite(x)&&Number.isFinite(y)){xs.push(x);ys.push(y);}
+    });
+    return {cx:(Math.min(...xs)+Math.max(...xs))/2, cy:(Math.min(...ys)+Math.max(...ys))/2};
   }
 
-  // Ensure image dimensions are available
-  if (!img.complete) {
-    await new Promise(res => img.addEventListener("load", res, { once: true }));
+  function scrollImageTo(id){
+    const poly=svg.querySelector(`polygon[data-id="${CSS.escape(id)}"]`);
+    if(!poly)return;
+    const b=bbox(poly.getAttribute("points"));
+    const scaleX=(img.clientWidth/zoom)/imgW;
+    const scaleY=(img.clientHeight/zoom)/imgH;
+    imgBox.scrollLeft=b.cx*scaleX*zoom-imgBox.clientWidth/2;
+    imgBox.scrollTop=b.cy*scaleY*zoom-imgBox.clientHeight/2;
   }
 
-  // Load PAGE XML
-  const xmlText = await fetch(XML_FILE).then(r => r.text());
-  const doc = new DOMParser().parseFromString(xmlText, "application/xml");
-
-  const pageNode = doc.querySelector("PcGts > Page");
-  const imageW = parseFloat(pageNode.getAttribute("imageWidth"));
-  const imageH = parseFloat(pageNode.getAttribute("imageHeight"));
-
-  svg.setAttribute("viewBox", `0 0 ${imageW} ${imageH}`);
-  svg.setAttribute("preserveAspectRatio", "none");
-
-  // Build line data
-  const textLines = [...doc.querySelectorAll("TextLine")].map((tl, idx) => {
-    const id = tl.getAttribute("id") || `line_${idx+1}`;
-    const coords = tl.querySelector("Coords")?.getAttribute("points") || "";
-    const unicode = tl.querySelector("TextEquiv > Unicode")?.textContent?.trim() || "";
-    return { id, coords, unicode };
-  }).filter(x => x.coords && x.unicode);
-
-  // Render transcription lines
-  for (const item of textLines) {
-    const div = document.createElement("div");
-    div.className = "line";
-    div.dataset.id = item.id;
-    div.textContent = item.unicode;
-    linesDiv.appendChild(div);
+  function scrollTextTo(id){
+    const el=lines.querySelector(`.line[data-id="${CSS.escape(id)}"]`);
+    if(el)el.scrollIntoView({block:"center"});
   }
 
-  // Render polygons
-  for (const item of textLines) {
-    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    poly.setAttribute("points", item.coords);
-    poly.setAttribute("class", "hl");
-    poly.dataset.id = item.id;
-    poly.style.pointerEvents = "auto"; // enable hover on image overlay
-    svg.appendChild(poly);
+  function setActive(id){
+    document.querySelectorAll(".active").forEach(x=>x.classList.remove("active"));
+    lines.querySelector(`.line[data-id="${CSS.escape(id)}"]`)?.classList.add("active");
+    svg.querySelector(`polygon[data-id="${CSS.escape(id)}"]`)?.classList.add("active");
   }
 
-  function setActive(id, on){
-    const lineEl = linesDiv.querySelector(`.line[data-id="${CSS.escape(id)}"]`);
-    const polyEl = svg.querySelector(`polygon[data-id="${CSS.escape(id)}"]`);
-    if (lineEl) lineEl.classList.toggle("active", on);
-    if (polyEl) polyEl.classList.toggle("active", on);
+  function updateIndicators(){
+    const text=`Page ${page+1} of ${PAGES.length}`;
+    indicatorTop.textContent=text;
+    indicatorBottom.textContent=text;
+    prevTop.disabled=prevBottom.disabled=page===0;
+    nextTop.disabled=nextBottom.disabled=page===PAGES.length-1;
   }
 
-  // Hover: text -> image
-  linesDiv.addEventListener("mouseover", (e) => {
-    const line = e.target.closest(".line");
-    if (!line) return;
-    setActive(line.dataset.id, true);
+  async function load(i){
+    page=Math.max(0,Math.min(PAGES.length-1,i));
+    pageSelect.value=String(page);
+    updateIndicators();
+
+    lines.innerHTML="";
+    svg.innerHTML="";
+    imgBox.scrollLeft=imgBox.scrollTop=0;
+    img.src=PAGES[page].image;
+
+    const xml=await fetch(PAGES[page].xml).then(r=>r.text());
+    const doc=new DOMParser().parseFromString(xml,"application/xml");
+    const pg=doc.querySelector("Page")||doc.querySelector("PcGts > Page");
+    imgW=+pg.getAttribute("imageWidth")||1;
+    imgH=+pg.getAttribute("imageHeight")||1;
+    svg.setAttribute("viewBox",`0 0 ${imgW} ${imgH}`);
+
+    doc.querySelectorAll("TextLine").forEach((t,idx)=>{
+      const id=t.getAttribute("id")||`line_${idx+1}`;
+      const pts=t.querySelector("Coords")?.getAttribute("points");
+      const txt=t.querySelector("TextEquiv > Unicode")?.textContent?.trim()
+             || t.querySelector("Unicode")?.textContent?.trim();
+      if(!pts||!txt)return;
+
+      const div=document.createElement("div");
+      div.className="line";
+      div.dataset.id=id;
+      div.textContent=txt;
+      div.onclick=()=>{setActive(id);scrollImageTo(id);};
+      div.onmouseenter=()=>setActive(id);
+      lines.appendChild(div);
+
+      const poly=document.createElementNS("http://www.w3.org/2000/svg","polygon");
+      poly.setAttribute("points",pts);
+      poly.dataset.id=id;
+      poly.classList.add("hl");
+      poly.style.pointerEvents="auto";
+      poly.onclick=()=>{setActive(id);scrollTextTo(id);};
+      poly.onmouseenter=()=>setActive(id);
+      svg.appendChild(poly);
+    });
+
+    applyZoom(zoom);
+  }
+
+  PAGES.forEach((p,i)=>{
+    const o=document.createElement("option");
+    o.value=String(i);
+    o.textContent=p.label;
+    pageSelect.appendChild(o);
   });
-  linesDiv.addEventListener("mouseout", (e) => {
-    const line = e.target.closest(".line");
-    if (!line) return;
-    setActive(line.dataset.id, false);
-  });
 
-  // Hover: image -> text
-  svg.addEventListener("mouseover", (e) => {
-    const poly = e.target.closest("polygon[data-id]");
-    if (!poly) return;
-    setActive(poly.dataset.id, true);
-  });
-  svg.addEventListener("mouseout", (e) => {
-    const poly = e.target.closest("polygon[data-id]");
-    if (!poly) return;
-    setActive(poly.dataset.id, false);
-  });
+  pageSelect.onchange=()=>load(+pageSelect.value);
+  prevTop.onclick=prevBottom.onclick=()=>load(page-1);
+  nextTop.onclick=nextBottom.onclick=()=>load(page+1);
 
-  // Initialize sizing + zoom
-  syncOverlayToImage();
-  applyZoom(zoom.value);
-
-  zoom.addEventListener("input", () => applyZoom(zoom.value));
-  window.addEventListener("resize", () => {
-    syncOverlayToImage();
-    applyZoom(zoom.value);
-  });
-
+  setZoomUI();
+  await load(0);
 })();
 </script>
 </body>
